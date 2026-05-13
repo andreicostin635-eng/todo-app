@@ -1,0 +1,62 @@
+name: Build and Deploy ToDo App
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build images
+        run: |
+          docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/todo-db ./database
+          docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/todo-backend ./backend
+          docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/todo-frontend ./frontend
+
+      - name: Run containers
+        run: |
+          docker network create todo-network
+          docker run --name todo-db-container --network todo-network \
+            -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres \
+            -e POSTGRES_DB=tododb -d ${{ secrets.DOCKERHUB_USERNAME }}/todo-db
+          sleep 5
+          docker run --name todo-backend-container --network todo-network \
+            -e DB_HOST=todo-db-container -e DB_NAME=tododb \
+            -e DB_USER=postgres -e DB_PASS=postgres \
+            -p 3000:3000 -d ${{ secrets.DOCKERHUB_USERNAME }}/todo-backend
+          sleep 3
+          docker run --name todo-frontend-container --network todo-network \
+            -p 8080:80 -d ${{ secrets.DOCKERHUB_USERNAME }}/todo-frontend
+
+      - name: Test backend
+        run: |
+          curl --fail http://localhost:3000/tasks
+          echo "Backend OK!"
+
+      - name: Test frontend
+        run: |
+          curl --fail http://localhost:8080
+          echo "Frontend OK!"
+
+      - name: Cleanup
+        run: |
+          docker stop todo-db-container todo-backend-container todo-frontend-container
+          docker rm todo-db-container todo-backend-container todo-frontend-container
+          docker network rm todo-network
+
+      - name: Push to Docker Hub
+        run: |
+          docker push ${{ secrets.DOCKERHUB_USERNAME }}/todo-db
+          docker push ${{ secrets.DOCKERHUB_USERNAME }}/todo-backend
+          docker push ${{ secrets.DOCKERHUB_USERNAME }}/todo-frontend
