@@ -1,0 +1,14 @@
+{
+  "name": "todo-backend",
+  "version": "1.0.0",
+  "main": "index.js",
+  "dependencies": {
+    "express": "^4.18.2",
+    "pg": "^8.11.0",
+    "cors": "^2.8.5",
+    "nodemailer": "6.9.4",
+    "imapflow": "^1.0.148",
+    "poplib": "^0.1.7",
+    "socket.io": "^4.7.2"
+  }
+}

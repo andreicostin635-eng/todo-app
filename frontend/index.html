@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <title>ToDo List</title>
+  <style>
+    body { font-family: Arial, sans-serif; max-width: 800px; margin: 40px auto; padding: 0 20px; }
+    table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+    th, td { border: 1px solid #ddd; padding: 10px; text-align: left; }
+    th { background: #4CAF50; color: white; }
+    input, textarea { width: 100%; padding: 8px; margin: 5px 0; box-sizing: border-box; }
+    button { padding: 8px 16px; cursor: pointer; margin: 2px; }
+    .btn-delete { background: #f44336; color: white; border: none; }
+    .btn-edit { background: #2196F3; color: white; border: none; }
+    .btn-add { background: #4CAF50; color: white; border: none; font-size: 16px; }
+  </style>
+  <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+</head>
+<body>
+  <h1>📝 ToDo List</h1>
+
+  <h2>Добавить задачу</h2>
+  <input type="text" id="title" placeholder="Название задачи" />
+  <textarea id="description" placeholder="Описание" rows="2"></textarea>
+  <button class="btn-add" onclick="addTask()">Добавить</button>
+
+  <table>
+    <thead>
+      <tr><th>ID</th><th>Название</th><th>Описание</th><th>Выполнена</th><th>Действия</th></tr>
+    </thead>
+    <tbody id="taskList"></tbody>
+  </table>
+
+  <script>
+    // Адрес бэкенда — меняй порт если нужно
+    const API = 'http://localhost:3000';
+
+    // Загрузить все задачи и показать в таблице
+    async function loadTasks() {
+      const res = await fetch(`${API}/tasks`);
+      const tasks = await res.json();
+      const tbody = document.getElementById('taskList');
+      tbody.innerHTML = '';
+      tasks.forEach(task => {
+        tbody.innerHTML += `
+          <tr>
+            <td>${task.id}</td>
+            <td>${task.title}</td>
+            <td>${task.description || ''}</td>
+            <td>${task.done ? '✅' : '❌'}</td>
+            <td>
+              <button class="btn-edit" onclick="editTask(${task.id}, '${task.title}', '${task.description || ''}', ${task.done})">✏️ Изменить</button>
+              <button class="btn-delete" onclick="deleteTask(${task.id})">🗑️ Удалить</button>
+            </td>
+          </tr>`;
+      });
+    }
+
+    // Добавить задачу
+    async function addTask() {
+      const title = document.getElementById('title').value;
+      const description = document.getElementById('description').value;
+      if (!title) return alert('Введите название!');
+      await fetch(`${API}/tasks`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title, description })
+      });
+      document.getElementById('title').value = '';
+      document.getElementById('description').value = '';
+      loadTasks();
+    }
+
+    // Удалить задачу
+    async function deleteTask(id) {
+      if (!confirm('Удалить задачу?')) return;
+      await fetch(`${API}/tasks/${id}`, { method: 'DELETE' });
+      loadTasks();
+    }
+
+    // Редактировать задачу
+  async function editTask(id, title, description, done) {
+    const newTitle = prompt('Название:', title);
+    if (newTitle === null) return;
+    const newDesc = prompt('Описание:', description);
+    if (newDesc === null) return;
+    
+    // Создаём диалог с тремя кнопками
+    const dialog = document.createElement('div');
+    dialog.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:1000';
+    dialog.innerHTML = `
+      <div style="background:white;padding:30px;border-radius:8px;text-align:center;min-width:300px">
+        <h3 style="margin-bottom:20px">Задача выполнена?</h3>
+        <button id="btn-yes" style="padding:10px 20px;margin:5px;background:#4CAF50;color:white;border:none;border-radius:4px;cursor:pointer;font-size:16px">✅ Да</button>
+        <button id="btn-no" style="padding:10px 20px;margin:5px;background:#f44336;color:white;border:none;border-radius:4px;cursor:pointer;font-size:16px">❌ Нет</button>
+        <button id="btn-cancel" style="padding:10px 20px;margin:5px;background:#9E9E9E;color:white;border:none;border-radius:4px;cursor:pointer;font-size:16px">🚫 Отмена</button>
+      </div>
+    `;
+    document.body.appendChild(dialog);
+
+    const newDone = await new Promise((resolve) => {
+      document.getElementById('btn-yes').onclick = () => { document.body.removeChild(dialog); resolve(true); };
+      document.getElementById('btn-no').onclick = () => { document.body.removeChild(dialog); resolve(false); };
+      document.getElementById('btn-cancel').onclick = () => { document.body.removeChild(dialog); resolve(null); };
+    });
+
+    if (newDone === null) return;
+
+    await fetch(`${API}/tasks/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: newTitle, description: newDesc, done: newDone })
+    });
+    loadTasks();
+  }
+
+    // Загружаем задачи при открытии страницы
+    loadTasks();
+
+    // WebSocket — автообновление
+    const socket = io('http://localhost:3000');
+    socket.on('task-created', () => loadTasks());
+    socket.on('task-updated', () => loadTasks());
+    socket.on('task-deleted', () => loadTasks());
+  </script>
+
+  <h2>📧 Отправить задачи по Email</h2>
+<input type="email" id="emailTo" placeholder="Кому (email)" />
+<button class="btn-add" onclick="sendEmail()">Отправить список задач</button>
+<div id="emailStatus"></div>
+
+<script>
+  async function sendEmail() {
+    const to = document.getElementById('emailTo').value;
+    if (!to) return alert('Введите email!');
+    const res = await fetch(`${API}/tasks`);
+    const tasks = await res.json();
+    const text = tasks.map(t => `[${t.done ? '✓' : ' '}] ${t.title}: ${t.description || ''}`).join('\n');
+    const result = await fetch(`${API}/send-email`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ to, subject: 'Мой список задач ToDo', text: `Мои задачи:\n\n${text}` })
+    });
+    const data = await result.json();
+    document.getElementById('emailStatus').textContent = data.message || data.error;
+  }
+</script>
+
+</body>
+</html>
